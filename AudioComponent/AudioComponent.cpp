@@ -1,5 +1,8 @@
 ﻿#include "pch.h"
 #include "AudioComponent.h"
+#include "Windows.h"
+
+//#include "Winuser.h"
 
 using namespace AudioComponent;
 using namespace Platform;
@@ -23,6 +26,8 @@ public:
 	void STDMETHODCALLTYPE OnLoopEnd(void * pBufferContext) { }
 	void STDMETHODCALLTYPE OnStreamEnd() { }
 	void STDMETHODCALLTYPE OnVoiceError(void * pBufferContext, HRESULT Error) { }
+
+
 };
 
 void AudioEngine::StartEngineLoop()
@@ -34,10 +39,10 @@ void AudioEngine::StartEngineLoop()
 	WAVEFORMATEX waveformat;
 	waveformat.nChannels = 1;
 	waveformat.nSamplesPerSec = SAMPLERATE;
-	waveformat.wBitsPerSample = 8;
-	waveformat.nAvgBytesPerSec = SAMPLERATE;
+	waveformat.wBitsPerSample = 16; //jb:changed from 8bits to improve sound when volume is low.
+	waveformat.nAvgBytesPerSec = SAMPLERATE*2; // was just samplerate
 	waveformat.wFormatTag = WAVE_FORMAT_PCM;
-	waveformat.nBlockAlign = 1;// (waveformat.nChannels * waveformat.wBitsPerSample) / 8;
+	waveformat.nBlockAlign = 2;//jb (waveformat.nChannels * waveformat.wBitsPerSample) / 8; Note this was 1 for 8 bit
 	waveformat.cbSize = 0;
 
 	VoiceCallback* voiceCallback = new VoiceCallback();
@@ -47,8 +52,8 @@ void AudioEngine::StartEngineLoop()
 	ZeroMemory(&xaudio_buffer, sizeof(xaudio_buffer));
 	xaudio_buffer.AudioBytes = BUFFERSIZE;
 
-	data1 = new BYTE[BUFFERSIZE];
-	data2 = new BYTE[BUFFERSIZE];
+	data1 = new byteint[BUFFERSIZE / 2]; //jb: using 16 bit so the number of samples in a buffer is half the number of bytes
+	data2 = new byteint[BUFFERSIZE / 2]; //
 
 	FillBuffer(data1);
 
@@ -62,18 +67,25 @@ void AudioEngine::StartEngineLoop()
 	}
 }
 
-void AudioEngine::FillBuffer(BYTE* buffer)
+void AudioEngine::FillBuffer(byteint* buffer) //zz
 {
-	static double pos = 0;
 
 	double incr = currentFrequency / SAMPLERATE;
-	for (int i = 0; i < BUFFERSIZE; i++)
+
+	for (int i = 0; i < BUFFERSIZE; i=i+2)
 	{
-		buffer[i] = (BYTE)(sin((2) * PI * pos)* currentVolume*masterVolume * 128) + 128;
+        if (pos >= 1)  //jb: When pos = 1, sin(2*PI*pos)=0  so now we can change the in-use volume without making a click
+		    {
+			pos = pos - 1; //jb: of course, sin(2*PI*(pos-1)) = sin(2*PI*pos), so this subtraction of 1 makes no difference
+			inUseVolume = currentVolume*masterVolume;  //jb changes to currentVolume or to masterVolume (at start or stop) are only made now when the output level is zero 
+		    }
+
+		buffer[i / 2].iValue = sin((2) * PI * pos)*128*64* inUseVolume; //jb: replace currentVolume*masterVolume with inUseVolume, use 16 bit samples rather than 8 
+
 		pos += incr;
 	}
 
-	xaudio_buffer.pAudioData = buffer;
+	xaudio_buffer.pAudioData = &buffer[0].b[0];  //jb: &buffer[0].b[0] is the BYTE address of the start of the buffer
 	xaudio_source->SubmitSourceBuffer(&xaudio_buffer);
 }
 
@@ -89,7 +101,7 @@ void AudioEngine::Stop()
 
 void AudioEngine::SetTone(double tone, double volume)
 {
-	currentFrequency = (float)(110 * pow(pow(2, 1.0 / 12), (int)(tone * 22)));
+	currentFrequency = (float)(110 * pow(pow(2, 1.0 / 12), (int)(tone * 44)));//jb: was 22
 	currentVolume = volume;
 }
 
